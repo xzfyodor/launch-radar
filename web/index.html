@@ -470,7 +470,7 @@ const ccol = (k) => ['solana', 'base', 'robinhood', 'elysium'].includes(k) ? `va
 const dot = (k) => `<i class="cdot" style="background:${ccol(k)}" aria-hidden="true"></i>`;
 const norm = (s) => String(s || '').toLowerCase().replace(/\(.*?\)|\*/g, '').replace(/[^a-z0-9]/g, '');
 const chev = '<svg class="chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const hh = (h) => new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric' }).replace(':00', '').replace(/\s/g, '').toLowerCase();
+const hh = (h) => { h = ((h % 24) + 24) % 24; return (h % 12 || 12) + (h < 12 ? 'am' : 'pm'); };
 
 /* ---------- Data model ---------- */
 // One launchpad list per chain: trading volume (DefiLlama) merged with measured outcomes (our tracker).
@@ -504,25 +504,29 @@ function whereBar(parts, label, caption) {
 const volSplit = (e) => split(Object.fromEntries((e.where || []).map((x) => [x.ck, x.vol])));
 const launchSplit = (e) => split(Object.fromEntries((e.where || []).map((x) => [x.ck, x.n])));
 const eventSplit = (e) => { const v = volSplit(e); return v.length ? v : launchSplit(e); };
-// Best 3-hour window to launch, in the viewer's local time.
-// Preferred: most trading per new launch (buyers' money ÷ competing tokens). Until ~a day of hourly volume
-// exists, fall back to the quietest hours (fewest new launches).
-const toLocal = (u) => { const off = -new Date().getTimezoneOffset() / 60; return Array.from({ length: 24 }, (_, h) => u[(((h - off) % 24) + 24) % 24]); };
+// Best 3-hour window to launch = the busiest trading hours, shown in Singapore time (SGT, UTC+8).
+// Source: 7 days of hourly candles from each chain's top memecoin pools (hourProfile); until that exists,
+// the collector's own hourly readings (hourVol) once 18+ hours are covered.
+const SGT = 8;
+const toSGT = (u) => Array.from({ length: 24 }, (_, h) => u[(((h - SGT) % 24) + 24) % 24]);
+const sgtHour = () => (new Date().getUTCHours() + SGT) % 24;
 const known = (a) => a.filter((x) => x != null);
 function bestHours(c) {
-  const comp = data.hourOfDay?.[c.key], vol = data.hourVol?.[c.key];
-  if (!comp || known(comp).length < 18) return null;
-  const lc = toLocal(comp), lv = vol ? toLocal(vol) : null;
-  const byVol = lv && known(lv).length >= 18;
-  const val = byVol ? lc.map((n, h) => (lv[h] == null || n == null ? null : lv[h] / Math.max(n, 1))) : lc;
+  const P = data.hourProfile?.[c.key], own = data.hourVol?.[c.key];
+  let val, usdH = null, src;
+  if (P?.idx) { val = toSGT(P.idx); usdH = toSGT(P.usd); src = P.pools; }
+  else if (own && known(own).length >= 18) { val = toSGT(own); usdH = val; src = 0; }
+  else return null;
   let best = null;
   for (let h = 0; h < 24; h++) {
     const w = [0, 1, 2].map((i) => val[(h + i) % 24]); if (w.some((x) => x == null)) continue;
-    const s = sum(w); if (!best || (byVol ? s > best.s : s < best.s)) best = { h, s };
+    const s = sum(w); if (!best || s > best.s) best = { h, s };
   }
   if (!best) return null;
   const avg = sum(known(val)) / known(val).length;
-  return { byVol, comp: lc, vol: lv, val, start: best.h, end: (best.h + 3) % 24, diff: byVol ? best.s / 3 / avg - 1 : 1 - best.s / 3 / avg };
+  let low = null;
+  for (let h = 0; h < 24; h++) { const w = [0, 1, 2].map((i) => val[(h + i) % 24]); if (w.some((x) => x == null)) continue; const s = sum(w); if (!low || s < low.s) low = { h, s }; }
+  return { val, usd: usdH, src, start: best.h, end: (best.h + 3) % 24, up: best.s / 3 / avg - 1, low: low && low.h };
 }
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 // Best weekday by typical launchpad volume (DefiLlama days are UTC).
@@ -532,6 +536,8 @@ function bestDay(c) {
   return { d, best, worst, up: d[best] / avg - 1, down: 1 - d[worst] / avg };
 }
 const quietHours = bestHours;
+// The best UTC day's window in SGT: hours before 8am SGT belong to the next SGT calendar day.
+const sgtSlot = (bd, q) => (bd && q ? `${DAYS[(bd.best + (q.start < SGT ? 1 : 0)) % 7].slice(0, 3)} ${hh(q.start)}–${hh(q.end)} SGT` : q ? `${hh(q.start)}–${hh(q.end)} SGT` : bd ? DAYS[bd.best].slice(0, 3) : '');
 
 function facts(c) {
   const L = c.llama, F = c.fast;
@@ -611,12 +617,12 @@ function renderCall() {
   const evTop = ev && eventSplit(ev)[0];
   const thTop = theme && split(theme.chains)[0];
   $('#answers').innerHTML = [
-    card('WHERE', `${dot(top.key)}${esc(top.name)}`, `Score <b>${top.score.score}</b>/100.${bdTop || q ? ` Best: <b>${[bdTop ? DAYS[bdTop.best].slice(0, 3) : '', q ? `${hh(q.start)}–${hh(q.end)}` : ''].filter(Boolean).join(', ')}</b>.` : ''}`, 'chains', `<span class="pill ${v.cls}">${v.text}</span>`, 'chain:' + top.key),
+    card('WHERE', `${dot(top.key)}${esc(top.name)}`, `Score <b>${top.score.score}</b>/100.${bdTop || q ? ` Best: <b>${sgtSlot(bdTop, q)}</b>.` : ''}`, 'chains', `<span class="pill ${v.cls}">${v.text}</span>`, 'chain:' + top.key),
     bestPad ? card('ON', esc(bestPad.name), bestPad.rated ? `<b>${rate(bestPad.proof.winRate)}</b> of ${bestPad.proof.n} tokens took off${bestPad.proof.gradRate != null ? `, ${rate(bestPad.proof.gradRate)} graduated` : ''}.` : `Busiest on ${esc(top.name)}: ${usd(bestPad.vol)} today. Success rate measuring.`, 'pads', '', 'pad:' + top.key) : card('ON', 'Measuring', 'Not enough data yet.', 'pads'),
     theme ? card('ABOUT', esc(theme.label), `${rate(theme.vol / totalTh)} of trending trading${thTop ? `, biggest on ${esc(chainName(thTop.ck, true))}` : ''}.`, 'trends') : card('ABOUT', 'Measuring', 'Waiting for trending tokens.', 'trends'),
     ev ? card('NEXT', esc(ev.title), `${esc(whenTxt(ev.days))} · chance <b>${ev.score}</b>/100${evTop ? ` · hottest on ${esc(chainName(evTop.ck, true))}` : ''}.`, 'trends', '', 'ev:' + ev.id) : card('NEXT', 'Nothing soon', 'No big events ahead.', 'trends'),
   ].join('');
-  $('#callTime').textContent = new Date(data.updated?.fast || data.now).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  $('#callTime').textContent = new Date(data.updated?.fast || data.now).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' }) + ' SGT';
 }
 
 /* ---------- 01 Chains ---------- */
@@ -632,21 +638,21 @@ function renderConsole() {
   const total = sum((c.llama?.pads || []).map((p) => p.vol24h)) || 1;
   const pads = launchpads(c).filter((p) => p.vol != null).slice(0, 4).map((p) => `<li><span class="n">${esc(p.name)}${p.est ? '*' : ''}${p.rated ? `<small>${rate(p.proof.winRate)} took off</small>` : ''}</span><span class="a">${usd(p.vol)}</span><span class="b ${p.g == null ? 'flat' : p.g >= 0 ? 'up' : 'down'}">${pct(p.g)}</span><span class="share"><i style="width:${((p.vol / total) * 100).toFixed(1)}%"></i></span></li>`).join('');
   const hit = f.P?.n >= MIN_N ? rate(f.P.winRate) : null;
-  const q = bestHours(c), bd = bestDay(c), nowH = new Date().getHours(), today = new Date().getUTCDay();
+  const q = bestHours(c), bd = bestDay(c), nowH = sgtHour(), today = new Date().getUTCDay();
   const days = bd ? (() => {
     const max = Math.max(...bd.d) || 1, order = [1, 2, 3, 4, 5, 6, 0];
-    return `<div class="quiet">Best day: <b>${DAYS[bd.best]}</b>${bd.up > 0.03 ? `, about ${Math.round(bd.up * 100)}% more launchpad trading than average` : ''}. Slowest: ${DAYS[bd.worst]}.</div>
-      <div class="days" role="img" aria-label="Typical launchpad volume by weekday">${order.map((i) => `<span class="${i === bd.best ? 'q' : ''}${i === today ? ' now' : ''}" data-tip="${DAYS[i]}: ${usd(bd.d[i])} typical launchpad trading"><i style="height:${Math.max(3, (bd.d[i] / max) * 42).toFixed(0)}px"></i><em>${DAYS[i].slice(0, 2)}</em></span>`).join('')}</div>`;
+    return `<div class="quiet">Best day: <b>${DAYS[bd.best]}</b>${bd.up > 0.03 ? `, about ${Math.round(bd.up * 100)}% more launchpad trading than average` : ''}. Slowest: ${DAYS[bd.worst]}. <span class="muted" data-tip="Days run midnight to midnight UTC, which is 8am to 8am SGT.">(UTC days)</span></div>
+      <div class="days" role="img" aria-label="Typical launchpad volume by weekday (UTC days)">${order.map((i) => `<span class="${i === bd.best ? 'q' : ''}${i === today ? ' now' : ''}" data-tip="${DAYS[i]}: ${usd(bd.d[i])} typical launchpad trading"><i style="height:${Math.max(3, (bd.d[i] / max) * 42).toFixed(0)}px"></i><em>${DAYS[i].slice(0, 2)}</em></span>`).join('')}</div>`;
   })() : '';
   const hours = q ? (() => {
-    const bars = q.byVol ? q.val : q.comp, max = Math.max(...known(bars)) || 1;
+    const max = Math.max(...known(q.val)) || 1;
     const inQ = (h) => ((h - q.start + 24) % 24) < 3;
-    const tip = (h) => `${hh(h)}: ${q.vol?.[h] != null ? usd(q.vol[h]) + ' traded/hr, ' : ''}${q.comp[h] == null ? 'no data yet' : Math.round(q.comp[h]) + ' new tokens/hr'}`;
-    return `<div class="quiet" style="margin-top:12px">Best time: <b>${hh(q.start)}–${hh(q.end)}</b> your time${q.byVol ? (q.diff > 0.05 ? `, about ${Math.round(q.diff * 100)}% more trading per new token than average` : '') : `, the quietest hours (${Math.round(q.diff * 100)}% fewer launches)`}.</div>
-      <div class="hours" role="img" aria-label="${q.byVol ? 'Trading per new token' : 'New tokens launched'} by hour, your local time">${bars.map((x, h) => `<i class="${inQ(h) ? 'q' : ''}${h === nowH ? ' now' : ''}" style="height:${x == null ? 0 : Math.max(6, (x / max) * 100).toFixed(0)}%" data-tip="${tip(h)}"></i>`).join('')}</div>
-      <div class="hours-ax"><span>${hh(0)}</span><span>${hh(6)}</span><span>${hh(12)}</span><span>${hh(18)}</span><span>${hh(23)}</span></div>
-      ${q.byVol ? '' : '<p class="note">Switches to trading-per-launch once a day of hourly volume is collected.</p>'}`;
-  })() : '<p class="note">Hourly view needs about a day of data.</p>';
+    const tip = (h) => `${hh(h)} SGT: ${q.val[h] == null ? 'no data yet' : (q.src ? Math.round((q.val[h] / (sum(known(q.val)) / known(q.val).length) - 1) * 100) + '% vs average hour' : usd(q.val[h]) + ' traded/hr')}`;
+    return `<div class="quiet" style="margin-top:12px">Best time: <b>${hh(q.start)}–${hh(q.end)} SGT</b>${q.up > 0.05 ? `, about ${Math.round(q.up * 100)}% more trading than an average hour` : ''}. Slowest: ${hh(q.low)}–${hh(q.low + 3)}.${bd ? ` Busiest slot of the week: <b>${sgtSlot(bd, q)}</b>.` : ''}</div>
+      <div class="hours" role="img" aria-label="Memecoin trading volume by hour, Singapore time">${q.val.map((x, h) => `<i class="${inQ(h) ? 'q' : ''}${h === nowH ? ' now' : ''}" style="height:${x == null ? 0 : Math.max(6, (x / max) * 100).toFixed(0)}%" data-tip="${tip(h)}"></i>`).join('')}</div>
+      <div class="hours-ax"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>11pm SGT</span></div>
+      ${q.src ? `<p class="note">From the last 7 days of hourly trading in ${q.src} of this chain's top memecoin pools.</p>` : ''}`;
+  })() : '<p class="note">Hourly volume view is still loading.</p>';
   const timing = days + hours;
 
   $('#app').innerHTML = `<div class="console">${rail}<section class="panel stage" id="stage" role="tabpanel" aria-labelledby="tab-${esc(c.key)}" style="--glow:color-mix(in srgb, ${v.col} 16%, transparent)">

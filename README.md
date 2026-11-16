@@ -64,7 +64,7 @@ Starts at 50, then:
 
 - Each predictor event now carries `where`: related trending volume and new launches per chain, so the page can show where an event trades and where new tokens about it launch.
 - Fixed: short event keywords (3 letters or fewer, like "gta") never matched, because `\b` inside a template string became a backspace.
-- The page shows the quietest 3 hours per chain (fewest new launches) from `hourOfDay`, in the viewer's local time.
+- **Best time to launch** = the busiest 3 trading hours per chain, shown in Singapore time (SGT). `hourProfile` (`data/hour-profile.json`, refreshed every 6 hours) uses the last 7 days of hourly candles from up to 6 of each chain's top trending memecoin pools (older ones first), each scaled to its own average so one big token can't dominate. **Best day** = the weekday with the highest typical launchpad volume (UTC days).
 
 ## Hidden gems and trend predictor
 

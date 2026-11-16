@@ -394,7 +394,7 @@ async function refreshTrending() {
       state.trending[c.key] = (d.data || []).map((p) => {
         const a = p.attributes, tk = tokens[p.relationships?.base_token?.data?.id] || {};
         const sym = tk.symbol || a.name.split(' / ')[0];
-        return { sym, nm: tk.name || '', dex: padName(p.relationships?.dex?.data?.id || '?'), ageH: Math.round((Date.now() - Date.parse(a.pool_created_at)) / 3600000),
+        return { sym, pa: a.address, nm: tk.name || '', dex: padName(p.relationships?.dex?.data?.id || '?'), ageH: Math.round((Date.now() - Date.parse(a.pool_created_at)) / 3600000),
           vol: Math.round(+(a.volume_usd?.h24 || 0)), v1: Math.round(+(a.volume_usd?.h1 || 0)), fdv: Math.round(+a.fdv_usd || 0), chg: a.price_change_percentage?.h24 != null ? Math.round(+a.price_change_percentage.h24) : null };
       }).filter((t) => !MAJORS.has(String(t.sym).toUpperCase().replace(/^\$/, '')) && t.fdv < 2e9 && !seen.has(t.sym) && seen.add(t.sym))
         .map((t) => ({ ...t, theme: themeOf(t.sym, t.nm) }));
@@ -411,6 +411,35 @@ async function refreshTrending() {
   writeExport();
 }
 const THEME_FILE = path.join(DATA, 'themes.jsonl');
+
+// Hourly trading profile per chain: the last 7 days of hourly candles from each chain's busiest trending
+// memecoin pools, each pool scaled to its own average so one big token can't dominate. Index 1 = average hour.
+const HOUR_FILE = path.join(DATA, 'hour-profile.json');
+let hourProfile = {}; try { hourProfile = JSON.parse(fs.readFileSync(HOUR_FILE, 'utf8')); } catch {}
+async function refreshHourProfile() {
+  if (Date.now() - (hourProfile.t || 0) < 6 * 3600000) return;
+  const out = { t: Date.now(), chains: {} };
+  for (const c of CHAINS) {
+    const list = (state.trending?.[c.key] || []).filter((t) => t.pa);
+    const pools = [...list.filter((t) => t.ageH >= 48), ...list.filter((t) => t.ageH < 48)].sort((a, b) => (b.ageH >= 48) - (a.ageH >= 48) || b.vol - a.vol).slice(0, 6);
+    const sum = Array(24).fill(0), cnt = Array(24).fill(0), usdSum = Array(24).fill(0);
+    let used = 0;
+    for (const p of pools) {
+      try {
+        const d = await gtGet(`https://api.geckoterminal.com/api/v2/networks/${c.gt}/pools/${p.pa}/ohlcv/hour?aggregate=1&limit=168&currency=usd`);
+        const rows = (d.data?.attributes?.ohlcv_list || []).filter((r) => r[0] * 1000 > Date.now() - 7 * 86400000);
+        if (rows.length < 24) continue;
+        const mean = rows.reduce((a, r) => a + +r[5], 0) / rows.length; if (!(mean > 0)) continue;
+        for (const r of rows) { const h = new Date(r[0] * 1000).getUTCHours(); sum[h] += +r[5] / mean; cnt[h]++; usdSum[h] += +r[5]; }
+        used++;
+      } catch (e) { logErr(`Hourly ${c.name}: ${e.message}`); }
+    }
+    if (used && cnt.every((n) => n > 0)) out.chains[c.key] = { idx: sum.map((v, h) => +(v / cnt[h]).toFixed(3)), usd: usdSum.map((v, h) => Math.round(v / 7)), pools: used };
+    else if (hourProfile.chains?.[c.key]) out.chains[c.key] = hourProfile.chains[c.key];
+  }
+  hourProfile = out;
+  try { fs.writeFileSync(HOUR_FILE, JSON.stringify(out)); } catch {}
+}
 
 function themeSummary() {
   // Attention = share of 24h trading among trending tokens, plus tokens from our tracker that took off this week.
@@ -571,6 +600,7 @@ function buildState() {
     })),
     hourOfDay: hourOfDay(snaps),
     hourVol: hourVol(snaps),
+    hourProfile: hourProfile.chains || null,
     dayOfWeek: dayOfWeek(),
     intraday: intraday(snaps),
     proof: launchpadStats(),
@@ -667,13 +697,15 @@ if (ONCE) {
     // Trending first, so this cycle's snapshot records the hour's trading volume.
     try { await refreshTrending(); } catch (e) { logErr(`Trending: ${e.message}`); }
     try { await refreshFast(); } catch (e) { logErr(`Fast: ${e.message}`); }
+    if (Date.now() - t0 < 7 * 60000) try { await refreshHourProfile(); } catch (e) { logErr(`Hourly: ${e.message}`); }
     trimHistory(); writeExport(); clearTimeout(guard);
     console.log(`Cycle done in ${Math.round((Date.now() - t0) / 1000)}s, ${state.errors.length} errors`);
     process.exit(0);
   })();
 } else {
   refreshLlama();
-  fastCycle().then(() => refreshTrending());
+  fastCycle().then(() => refreshTrending()).then(() => refreshHourProfile());
+  setInterval(refreshHourProfile, SLOW_MS);
   setInterval(refreshLlama, SLOW_MS);
   setInterval(fastCycle, FAST_MS);
   setInterval(refreshTrending, SLOW_MS);
