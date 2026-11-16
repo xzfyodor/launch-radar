@@ -221,7 +221,7 @@ async function refreshFast() {
       const dexMix = {};
       for (const p of pools) dexMix[p.dex] = (dexMix[p.dex] || 0) + 1;
       state.fast[c.key] = { pools, perHour, dexMix, at: Date.now() };
-      snap.chains[c.key] = { perHour, dexMix, price: state.prices[c.coin]?.price ?? null };
+      snap.chains[c.key] = { perHour, dexMix, price: state.prices[c.coin]?.price ?? null, tv: state.trendH1?.[c.key] ?? null };
       trackNew(c, pools);
     } catch (e) { logErr(`GeckoTerminal ${c.name}: ${e.message}`); }
   }
@@ -395,9 +395,11 @@ async function refreshTrending() {
         const a = p.attributes, tk = tokens[p.relationships?.base_token?.data?.id] || {};
         const sym = tk.symbol || a.name.split(' / ')[0];
         return { sym, nm: tk.name || '', dex: padName(p.relationships?.dex?.data?.id || '?'), ageH: Math.round((Date.now() - Date.parse(a.pool_created_at)) / 3600000),
-          vol: Math.round(+(a.volume_usd?.h24 || 0)), fdv: Math.round(+a.fdv_usd || 0), chg: a.price_change_percentage?.h24 != null ? Math.round(+a.price_change_percentage.h24) : null };
+          vol: Math.round(+(a.volume_usd?.h24 || 0)), v1: Math.round(+(a.volume_usd?.h1 || 0)), fdv: Math.round(+a.fdv_usd || 0), chg: a.price_change_percentage?.h24 != null ? Math.round(+a.price_change_percentage.h24) : null };
       }).filter((t) => !MAJORS.has(String(t.sym).toUpperCase().replace(/^\$/, '')) && t.fdv < 2e9 && !seen.has(t.sym) && seen.add(t.sym))
         .map((t) => ({ ...t, theme: themeOf(t.sym, t.nm) }));
+      // Last-hour trading across the chain's trending memecoins: our hourly "how busy are buyers" reading.
+      (state.trendH1 ||= {})[c.key] = state.trending[c.key].reduce((a, t) => a + (t.v1 || 0), 0);
     } catch (e) { logErr(`Trending ${c.name}: ${e.message}`); }
   }
   state.updated.trending = Date.now();
@@ -523,6 +525,28 @@ function hourOfDay(snaps) {
   return out;
 }
 
+// Average last-hour trending-memecoin trading by UTC hour (null until that hour has data).
+function hourVol(snaps) {
+  const out = {};
+  for (const c of CHAINS) {
+    const b = Array.from({ length: 24 }, () => []);
+    for (const s of snaps) { const v = s.chains?.[c.key]?.tv; if (v != null) b[new Date(s.t).getUTCHours()].push(v); }
+    out[c.key] = b.map((x) => (x.length ? Math.round(x.reduce((a, v) => a + v, 0) / x.length) : null));
+  }
+  return out;
+}
+// Typical launchpad volume by UTC weekday (0 = Sunday), median of the last ~6 weeks so one spike day can't win.
+function dayOfWeek() {
+  const out = {};
+  for (const c of CHAINS) {
+    const L = state.llama[c.key]; if (!L) continue;
+    const b = Array.from({ length: 7 }, () => []);
+    for (const d of fullDays(L.padDaily)) if (d.total > 0) b[new Date(d.t).getUTCDay()].push(d.total);
+    out[c.key] = b.map((x) => (x.length >= 2 ? Math.round(median(x)) : null));
+  }
+  return out;
+}
+
 function intraday(snaps) {
   const out = {};
   for (const c of CHAINS) out[c.key] = snaps.filter((s) => s.t > Date.now() - 2 * 86400000)
@@ -546,6 +570,8 @@ function buildState() {
       score: scoreChain(c, snaps),
     })),
     hourOfDay: hourOfDay(snaps),
+    hourVol: hourVol(snaps),
+    dayOfWeek: dayOfWeek(),
     intraday: intraday(snaps),
     proof: launchpadStats(),
     trending: state.trending || {},
@@ -638,8 +664,9 @@ if (ONCE) {
   (async () => {
     const t0 = Date.now();
     try { await refreshLlama(); } catch (e) { logErr(`Llama: ${e.message}`); }
-    try { await refreshFast(); } catch (e) { logErr(`Fast: ${e.message}`); }
+    // Trending first, so this cycle's snapshot records the hour's trading volume.
     try { await refreshTrending(); } catch (e) { logErr(`Trending: ${e.message}`); }
+    try { await refreshFast(); } catch (e) { logErr(`Fast: ${e.message}`); }
     trimHistory(); writeExport(); clearTimeout(guard);
     console.log(`Cycle done in ${Math.round((Date.now() - t0) / 1000)}s, ${state.errors.length} errors`);
     process.exit(0);
