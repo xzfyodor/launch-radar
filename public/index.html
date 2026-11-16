@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Radar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f1; --surface-1: #fcfcfb; --surface-2: #f0efec; --border: #e2e1dc;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+  --grid: #e8e7e2; --accent: #2a78d6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #8a8984;
+  --hot: #d03b3b; --warm: #fab219; --cold: #2a78d6; --good: #0ca30c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110; --surface-1: #1a1a19; --surface-2: #232321; --border: #2e2e2b;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+    --grid: #2a2a27; --accent: #3987e5;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #6f6e68;
+    --hot: #e66767; --warm: #fab219; --cold: #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface-1: #1a1a19; --surface-2: #232321; --border: #2e2e2b;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+  --grid: #2a2a27; --accent: #3987e5;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #6f6e68;
+  --hot: #e66767; --warm: #fab219; --cold: #3987e5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text-primary); font: 14px/1.45 Inter, system-ui, sans-serif; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 60px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 10px; }
+.muted { color: var(--text-muted); }
+.sec { color: var(--text-secondary); }
+.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.status { font-size: 12px; color: var(--text-muted); margin-left: auto; display: flex; gap: 10px; align-items: center; }
+button { font: inherit; background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--text-muted); }
+.panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.card { cursor: pointer; text-align: left; display: flex; flex-direction: column; justify-content: flex-start; width: 100%; padding: 16px; border-radius: 12px; background: var(--surface-1); border: 1px solid var(--border); }
+.card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.card-name { font-weight: 600; font-size: 16px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.score { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
+.score small { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 13px; margin-top: 8px; }
+.kv span:nth-child(odd) { color: var(--text-secondary); }
+.reasons { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-secondary); }
+.reasons li { padding: 2px 0; }
+.up { color: var(--good); } .down { color: var(--hot); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+@media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+.chart-box { position: relative; height: 260px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--text-muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+td.num, th.num { text-align: right; }
+.table-scroll { overflow-x: auto; }
+.bar { height: 6px; background: var(--surface-2); border-radius: 3px; min-width: 60px; }
+.bar > i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--text-secondary); white-space: nowrap; }
+.section-title { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.events form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.events input, .events select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); }
+.events input { flex: 1; min-width: 200px; }
+.events ul { list-style: none; margin: 0; padding: 0; }
+.events li { padding: 7px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: baseline; }
+.events li button { margin-left: auto; padding: 2px 8px; font-size: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.note { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+.err { font-size: 12px; color: var(--hot); }
+details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Launch Radar</h1>
+    <span class="sec">Launch activity on Solana, Base, Robinhood Chain and Elysium</span>
+    <div class="status"><span id="updated">Loading…</span><button id="refresh" type="button">Refresh now</button></div>
+  </header>
+
+  <div class="cards" id="cards"></div>
+
+  <div id="detail"></div>
+
+  <div class="panel" style="margin-bottom:12px">
+    <div class="section-title"><h2>New pools per hour, by hour of day (UTC)</h2><span class="muted" id="hodNote"></span></div>
+    <div class="legend" id="hodLegend"></div>
+    <div class="chart-box"><canvas id="hodChart" aria-label="Average new pools per hour by UTC hour"></canvas></div>
+    <p class="note">Each line is shown as a share of that chain's own busiest hour (100 = busiest), so chains of very different size can be compared. Low competition plus high volume is the window you want.</p>
+  </div>
+
+  <div class="panel events">
+    <h2>Team notes and events</h2>
+    <form id="evForm">
+      <select id="evChain"><option value="all">All chains</option></select>
+      <input id="evText" placeholder="e.g. Clanker relaunch announced, Montra fee change, we launched XYZ" maxlength="500">
+      <button type="submit">Add</button>
+    </form>
+    <ul id="evList"></ul>
+  </div>
+  <div id="errors"></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const SERIES = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s6'];
+let data = null, selected = localGet('lr-chain') || 'elysium';
+const charts = {};
+const padColorMap = {}; // color follows the launchpad, not its rank
+
+function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function localSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+const usd = (v) => v == null ? '—' : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
+const pct = (v) => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+const cls = (v) => v == null ? '' : v >= 0 ? 'up' : 'down';
+const ago = (t) => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`; };
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const day = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const LABEL = { hot: 'Hot', warm: 'Warm', cold: 'Cold' };
+const ICON = { hot: '▲', warm: '●', cold: '▼' };
+
+async function load() {
+  try {
+    const r = await fetch('/api/state');
+    data = await r.json();
+    render();
+  } catch (e) { $('#updated').textContent = 'Could not reach the collector. Is server.js running?'; }
+}
+
+function render() {
+  $('#updated').textContent = `Pools ${ago(data.updated.fast)} · Daily data ${ago(data.updated.llama)}`;
+  renderCards();
+  renderDetail();
+  renderHourOfDay();
+  renderEvents();
+  $('#errors').innerHTML = data.errors.length ? `<details style="margin-top:12px"><summary>${data.errors.length} recent data errors</summary>${data.errors.map((e) => `<div class="err">${new Date(e.t).toLocaleTimeString()} · ${esc(e.msg)}</div>`).join('')}</details>` : '';
+}
+
+function renderCards() {
+  $('#cards').innerHTML = data.chains.map((c) => {
+    const s = c.score, L = c.llama, F = c.fast;
+    const padTotal = L ? L.pads.reduce((a, p) => a + p.fees24h, 0) : null;
+    const top = L?.pads[0];
+    const topShare = top && padTotal ? Math.round((top.fees24h / padTotal) * 100) : null;
+    return `<button type="button" class="card ${c.key === selected ? 'active' : ''}" data-key="${c.key}">
+      <div class="card-top"><span class="card-name">${esc(c.name)}</span>
+        <span class="badge"><span style="color:var(--${s.label})">${ICON[s.label]}</span> ${LABEL[s.label]}</span></div>
+      <div class="score mono">${s.score}<small> / 100</small></div>
+      <div class="kv">
+        <span>Launchpad fees (1d)</span><span class="mono">${usd(padTotal)}</span>
+        <span>Chain DEX volume (1d)</span><span class="mono">${usd(L?.dex24h)} <span class="${cls(L?.dexChange1d)}">${pct(L?.dexChange1d)}</span></span>
+        <span>New pools / hour</span><span class="mono">${F?.perHour != null ? Math.round(F.perHour).toLocaleString() : '—'}</span>
+        <span>Top launchpad</span><span>${top ? `${esc(top.name)} <span class="muted mono">${topShare}%</span>` : '—'}</span>
+        <span>${c.sym}</span><span class="mono">${c.price ? '$' + c.price.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'} <span class="${cls(c.price?.change24h)}">${pct(c.price?.change24h)}</span></span>
+      </div>
+      <ul class="reasons">${s.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
+    </button>`;
+  }).join('');
+  document.querySelectorAll('.card').forEach((el) => el.onclick = () => { selected = el.dataset.key; localSet('lr-chain', selected); render(); });
+}
+
+function baseOpts(extra = {}) {
+  const grid = css('--grid'), muted = css('--text-muted');
+  return {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false }, tooltip: { backgroundColor: css('--surface-2'), titleColor: css('--text-primary'), bodyColor: css('--text-secondary'), borderColor: css('--border'), borderWidth: 1, padding: 10 } },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: muted, maxRotation: 0, autoSkipPadding: 12 }, border: { color: grid } },
+      y: { grid: { color: grid }, ticks: { color: muted }, border: { display: false }, beginAtZero: true },
+    },
+    ...extra,
+  };
+}
+function mkChart(id, cfg) { charts[id]?.destroy(); charts[id] = new Chart(document.getElementById(id), cfg); }
+
+function renderDetail() {
+  const c = data.chains.find((x) => x.key === selected) || data.chains[0];
+  const L = c.llama, F = c.fast;
+  if (!L) { $('#detail').innerHTML = `<div class="panel" style="margin-bottom:12px">No daily data for ${esc(c.name)} yet. It loads within a minute of starting.</div>`; return; }
+
+  const padTotal = L.pads.reduce((a, p) => a + p.fees24h, 0) || 1;
+  const top = L.pads.slice(0, 5);
+  top.forEach((p) => { if (!padColorMap[c.key + p.key]) padColorMap[c.key + p.key] = SERIES[Object.keys(padColorMap).filter((k) => k.startsWith(c.key)).length % 5]; });
+
+  const rows = L.pads.filter((p, i) => i < 5 || p.fees24h >= 50).slice(0, 10).map((p) => {
+    const avg7 = p.fees7d / 7;
+    const trend = avg7 > 0 ? p.fees24h / avg7 : null;
+    const t = trend == null ? '' : trend > 1.2 ? '<span class="tag up">▲ rising</span>' : trend < 0.8 ? '<span class="tag down">▼ fading</span>' : '<span class="tag">● steady</span>';
+    const share = (p.fees24h / padTotal) * 100;
+    const color = padColorMap[c.key + p.key];
+    return `<tr><td>${color ? `<span class="dot" style="background:var(${color});margin-right:6px"></span>` : ''}${esc(p.name)}</td>
+      <td class="num mono">${usd(p.fees24h)}</td><td class="num mono ${cls(p.change1d)}">${pct(p.change1d)}</td>
+      <td class="num mono">${usd(p.fees7d)}</td><td>${t}</td>
+      <td><div class="bar" title="${share.toFixed(1)}%"><i style="width:${share.toFixed(1)}%"></i></div></td><td class="num mono">${share.toFixed(1)}%</td></tr>`;
+  }).join('');
+
+  const pools = (F?.pools || []).slice(0, 12).map((p) => `<tr><td>${esc(p.name)}</td><td><span class="tag">${esc(p.dex)}</span></td>
+    <td class="num mono">${ago(p.created)}</td><td class="num mono">${usd(p.fdv)}</td><td class="num mono">${usd(p.volH1)}</td><td class="num mono">${p.buysH1}/${p.sellsH1}</td></tr>`).join('');
+  const mix = F ? Object.entries(F.dexMix).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="tag">${esc(k)} ${v}</span>`).join(' ') : '';
+
+  $('#detail').innerHTML = `
+  <div class="grid2">
+    <div class="panel">
+      <div class="section-title"><h2>${esc(c.name)} launchpads</h2><span class="muted">Fees, last full day</span></div>
+      <div class="table-scroll"><table><thead><tr><th>Launchpad</th><th class="num">Fees 1d</th><th class="num">vs day before</th><th class="num">Fees 7d</th><th>Trend</th><th colspan="2">Share of 1d</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="muted">No launchpads tracked</td></tr>'}</tbody></table></div>
+      <p class="note">"Rising" means yesterday was more than 1.2× the 7-day daily average. Fees track trading activity, but fee rates differ by launchpad, so compare trends rather than raw size across launchpads.</p>
+    </div>
+    <div class="panel">
+      <div class="section-title"><h2>Daily launchpad fees</h2><span class="muted">Last 30 days, top 5 + other</span></div>
+      <div class="legend" id="padLegend"></div>
+      <div class="chart-box"><canvas id="padChart" aria-label="Daily launchpad fees stacked by launchpad"></canvas></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="panel">
+      <div class="section-title"><h2>Chain DEX volume per day</h2><span class="muted">Last 30 days</span></div>
+      <div class="chart-box"><canvas id="dexChart" aria-label="Daily DEX volume"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="section-title"><h2>New pools per hour</h2><span class="muted">Last 48h of collected data</span></div>
+      <div class="chart-box"><canvas id="npChart" aria-label="New pools per hour over time"></canvas></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-bottom:12px">
+    <div class="section-title"><h2>Newest pools on ${esc(c.name)}</h2><span>${mix}</span></div>
+    <div class="table-scroll"><table><thead><tr><th>Pair</th><th>Launchpad / DEX</th><th class="num">Created</th><th class="num">FDV</th><th class="num">Vol 1h</th><th class="num">Buys/Sells 1h</th></tr></thead><tbody>${pools || '<tr><td colspan="6" class="muted">Waiting for first pool snapshot…</td></tr>'}</tbody></table></div>
+    <p class="note">From GeckoTerminal's 20 newest pools. The labels show which launchpad each token came from.</p>
+  </div>`;
+
+  // Stacked daily launchpad fees
+  const days = L.padDaily.slice(-30);
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const labels = days.map((d) => day(d.t) + (d.t >= today.getTime() ? ' (so far)' : ''));
+  const surface = css('--surface-1');
+  const ds = top.map((p) => ({ label: p.name, data: days.map((d) => d.by[p.key] || 0), backgroundColor: css(padColorMap[c.key + p.key]) }));
+  ds.push({ label: 'Other', data: days.map((d) => d.total - top.reduce((a, p) => a + (d.by[p.key] || 0), 0)), backgroundColor: css('--s6') });
+  ds.forEach((d) => Object.assign(d, { borderColor: surface, borderWidth: { top: 2 }, borderSkipped: false, borderRadius: 0, maxBarThickness: 18 }));
+  ds[ds.length - 1].borderRadius = { topLeft: 4, topRight: 4 };
+  $('#padLegend').innerHTML = ds.map((d) => `<span><i style="background:${d.backgroundColor}"></i>${esc(d.label)}</span>`).join('');
+  mkChart('padChart', { type: 'bar', data: { labels, datasets: ds }, options: baseOpts({
+    scales: { ...baseOpts().scales, x: { ...baseOpts().scales.x, stacked: true }, y: { ...baseOpts().scales.y, stacked: true, ticks: { color: css('--text-muted'), callback: (v) => usd(v) } } },
+    plugins: { ...baseOpts().plugins, tooltip: { ...baseOpts().plugins.tooltip, callbacks: { label: (i) => `${i.dataset.label}: ${usd(i.raw)}` } } },
+  }) });
+
+  const dd = L.dexDaily.slice(-30);
+  mkChart('dexChart', { type: 'line', data: { labels: dd.map((d) => day(d.t) + (d.t >= today.getTime() ? ' (so far)' : '')), datasets: [{ label: 'DEX volume', data: dd.map((d) => d.v), borderColor: css('--s1'), borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, tension: 0.25 }] },
+    options: baseOpts({ scales: { ...baseOpts().scales, y: { ...baseOpts().scales.y, ticks: { color: css('--text-muted'), callback: (v) => usd(v) } } }, plugins: { ...baseOpts().plugins, tooltip: { ...baseOpts().plugins.tooltip, callbacks: { label: (i) => usd(i.raw) } } } }) });
+
+  const np = (data.intraday[c.key] || []).filter((p) => p.v != null);
+  mkChart('npChart', { type: 'line', data: { labels: np.map((p) => new Date(p.t).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })),
+    datasets: [{ label: 'New pools / hour', data: np.map((p) => Math.round(p.v)), borderColor: css('--s2'), borderWidth: 2, pointRadius: np.length < 3 ? 4 : 0, pointHoverRadius: 5, tension: 0.25 }] }, options: baseOpts() });
+}
+
+function renderHourOfDay() {
+  const colors = ['--s1', '--s2', '--s3', '--s4'];
+  const ds = data.chains.map((c, i) => {
+    const raw = data.hourOfDay[c.key];
+    const max = Math.max(...raw.filter((v) => v != null), 0);
+    return { label: c.name, data: raw.map((v) => (v == null || !max ? null : Math.round((v / max) * 100))), raw, borderColor: css(colors[i]), backgroundColor: css(colors[i]), borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, spanGaps: true, tension: 0.25 };
+  });
+  $('#hodLegend').innerHTML = ds.map((d) => `<span><i style="background:${d.borderColor}"></i>${esc(d.label)}</span>`).join('');
+  const hours = data.snapshotCount ? ((Date.now() - data.collectingSince) / 3600000) : 0;
+  $('#hodNote').textContent = data.collectingSince ? `Collecting for ${hours < 48 ? hours.toFixed(1) + ' hours' : (hours / 24).toFixed(1) + ' days'} · ${data.snapshotCount} snapshots. It gets reliable after about a week.` : 'No snapshots yet';
+  mkChart('hodChart', { type: 'line', data: { labels: Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`), datasets: ds },
+    options: baseOpts({ scales: { ...baseOpts().scales, y: { ...baseOpts().scales.y, max: 100, ticks: { color: css('--text-muted') } } },
+      plugins: { ...baseOpts().plugins, tooltip: { ...baseOpts().plugins.tooltip, callbacks: { label: (i) => `${i.dataset.label}: ${i.raw ?? '—'} (${i.dataset.raw[i.dataIndex] != null ? Math.round(i.dataset.raw[i.dataIndex]) + ' pools/h' : 'no data'})` } } } }) });
+}
+
+function renderEvents() {
+  const sel = $('#evChain');
+  if (sel.options.length === 1) data.chains.forEach((c) => sel.add(new Option(c.name, c.name)));
+  $('#evList').innerHTML = data.events.length ? data.events.map((e) => `<li><span class="mono muted">${new Date(e.t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span><span class="tag">${esc(e.chain === 'all' ? 'All chains' : e.chain)}</span><span>${esc(e.text)}</span><button type="button" data-id="${esc(e.id)}">Remove</button></li>`).join('') : '<li class="muted">No notes yet. Log launches, launchpad changes and news here so you can line them up with the charts.</li>';
+  document.querySelectorAll('#evList button').forEach((b) => b.onclick = async () => { await fetch('/api/events/' + b.dataset.id, { method: 'DELETE' }); load(); });
+}
+
+$('#evForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $('#evText').value.trim(); if (!text) return;
+  await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chain: $('#evChain').value, text }) });
+  $('#evText').value = ''; load();
+};
+$('#refresh').onclick = async () => { $('#updated').textContent = 'Refreshing… (pools take ~40s)'; await fetch('/api/refresh', { method: 'POST' }); setTimeout(load, 45000); };
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

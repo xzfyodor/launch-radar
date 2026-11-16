@@ -1,0 +1,5 @@
+data/
+.vercel/
+node_modules/
+.claude/
+*.log
