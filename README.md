@@ -10,7 +10,8 @@ Vercel site (web/)             →  /data.json  →  rewritten to the `data` bra
 ```
 
 - `.github/workflows/collect.yml` runs one collector cycle every 15 minutes, with no PC needed. It loads the previous state from the `data` branch, runs, and force-pushes the new state as a single commit, so the repo doesn't grow.
-- `web/` is the public website. Rebuild it after editing the page with `node scripts/build-web.js`, then commit and redeploy (`vercel --prod` from `web/`).
+- `web/` is the public website, live at https://launch-radar-blush.vercel.app (Vercel project `launch-radar`). After editing the page, rebuild with `node scripts/build-web.js`, commit, and redeploy from `web/` with `vercel deploy --prod --yes` (on Windows PowerShell use `npx.cmd vercel deploy --prod --yes`). Data changes need no redeploy: the site reads them live.
+- GitHub's 15-minute schedule can run late. As a backup, the "push data to team page" scheduled task in the Claude app starts a run itself when the data is over 30 minutes old (only while the app is open).
 - `hosted/launch-radar.html` is the one page source. Inside claude.ai it reads the shared database and shows the Team log. On the website it fetches `data.json` every 2 minutes and hides the Team log.
 - `config/catalysts.json` holds the upcoming events for the trend predictor. Edit it and push to `main`; the next cycle picks it up.
 - GitHub pauses scheduled workflows in public repos after 60 days without activity. If the data stops updating, open the repo's **Actions** tab and re-enable `collect`.
